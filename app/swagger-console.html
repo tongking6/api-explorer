@@ -169,6 +169,7 @@
     <script src="bower_components/jquery-sieve/dist/jquery.sieve.js"></script>
     <!-- endbuild -->
 
+    <script src="config.js"></script>
     <script type="text/javascript">
 
         var getSwaggerJson = function(url, callback) {
@@ -227,125 +228,139 @@
 
             if (qs.url) {
                 var url = qs.url
+                var validSwaggerJsonUrl = [];
 
-                // validate that we were passed a relative URL and exit with an error message if it is not.
-                var ABSOLUTE_URL_RE = new RegExp('^(?:[a-z]+:)?(\\/|\\\\){2}', 'i');
-                if (ABSOLUTE_URL_RE.test(url)) {
-                    $("#swagger-ui-container").empty().append("<p>Oops!  Request failed! The API documentation at " +  encodeURI(qs.url) + " is an absolute URL.  Only relative URLs are supported.</p>");
-                    return;
-                }
-
-                getSwaggerJson(url, function(json) {
-
-                    // Override "host"
-                    if (qs.host) {
-                        json.host = qs.host;
-                    }
-
-                    // Override "basePath"
-                    if (qs.basePath) {
-                        json.basePath = qs.basePath;
-                    }
-
-                    hljs.configure({
-                        highlightSizeThreshold : 5000
+                $.getJSON(window.config.localApiEndPoint, function(data) {
+                    data.apis.forEach(element => {
+                        validSwaggerJsonUrl.push(element.url);
                     });
+                }).then(function() {
+                    // validate that we were passed a relative URL and exit with an error message if it is not.
+                    var ABSOLUTE_URL_RE = new RegExp('^(?:[a-z]+:)?(\\/|\\\\){2}', 'i');
 
-                    window.swaggerUi = new SwaggerUi({
-                        spec : json,
-                        dom_id : "swagger-ui-container",
-                        supportedSubmitMethods : [ 'get', 'post', 'put', 'delete', 'patch' ],
-                        //authorizations:{
-                        //    'vmware-api-session-id': new SwaggerClient.ApiKeyAuthorization('vmware-api-session-id', sessionStorage.getItem('vmware-api-session-id'), 'header')
-                        //},
-                        onComplete : function(swaggerApi, swaggerUi) {
-                            if (typeof initOAuth == "function") {
-                                initOAuth({
-                                    clientId : "your-client-id",
-                                    clientSecret : "your-client-secret-if-required",
-                                    realm : "your-realms",
-                                    appName : "your-app-name",
-                                    scopeSeparator : " ",
-                                    additionalQueryStringParams : {}
+                    // validate that if the url is in the whitelist provided by configuration file.
+                    var isUrlValid = validSwaggerJsonUrl.includes(url);
+                    
+                    // console.log(isUrlValid);
+                    if (ABSOLUTE_URL_RE.test(url) || !isUrlValid) {
+                        $("#swagger-ui-container").empty().append("<p>Oops!  Request failed! The API documentation at " +  encodeURI(qs.url) + " is an absolute URL.  Only relative URLs are supported.</p>");
+                        return;
+                    }
+
+                    getSwaggerJson(url, function(json) {
+
+                        // Override "host"
+                        if (qs.host) {
+                            json.host = qs.host;
+                        }
+
+                        // Override "basePath"
+                        if (qs.basePath) {
+                            json.basePath = qs.basePath;
+                        }
+
+                        hljs.configure({
+                            highlightSizeThreshold : 5000
+                        });
+
+                        window.swaggerUi = new SwaggerUi({
+                            spec : json,
+                            dom_id : "swagger-ui-container",
+                            supportedSubmitMethods : [ 'get', 'post', 'put', 'delete', 'patch' ],
+                            //authorizations:{
+                            //    'vmware-api-session-id': new SwaggerClient.ApiKeyAuthorization('vmware-api-session-id', sessionStorage.getItem('vmware-api-session-id'), 'header')
+                            //},
+                            onComplete : function(swaggerApi, swaggerUi) {
+                                if (typeof initOAuth == "function") {
+                                    initOAuth({
+                                        clientId : "your-client-id",
+                                        clientSecret : "your-client-secret-if-required",
+                                        realm : "your-realms",
+                                        appName : "your-app-name",
+                                        scopeSeparator : " ",
+                                        additionalQueryStringParams : {}
+                                    });
+                                }
+
+
+                                // Add the filter input
+                                var template = "<br><div class='filter'><input type='text' class='form-control' placeholder='Filter Methods... '></div><br>";
+                                $("#" + swaggerUi.dom_id).find("#resources").sieve({
+                                    itemSelector: "li",
+                                    searchTemplate: template
                                 });
-                            }
 
+                                // Reference to the created input field
+                                var $filter = $(".filter");
+                                var $input = $filter.find("input");
 
-                            // Add the filter input
-                            var template = "<br><div class='filter'><input type='text' class='form-control' placeholder='Filter Methods... '></div><br>";
-                            $("#" + swaggerUi.dom_id).find("#resources").sieve({
-                                itemSelector: "li",
-                                searchTemplate: template
-                            });
+                                // Function that toggles all available operations
+                                var toggleOperations = function(){
 
-                            // Reference to the created input field
-                            var $filter = $(".filter");
-                            var $input = $filter.find("input");
+                                    var value = $input.val();
+                                    if (value) {
+                                        $(".resource:not(.active) .options .toggleEndpointList").click();
+                                    } else {
+                                        $(".resource.active .options .toggleEndpointList").click();
+                                    }
 
-                            // Function that toggles all available operations
-                            var toggleOperations = function(){
+                                };
 
-                                var value = $input.val();
-                                if (value) {
-                                    $(".resource:not(.active) .options .toggleEndpointList").click();
+                                // When filtering, we first need to "expand" all the operations
+                                $input.on("keyup change", toggleOperations);
+
+                            },
+                            onFailure : function(data) {
+                                console.log("Unable to load SwaggerUI");
+                            },
+                            docExpansion : "none",
+                            jsonEditor : false,
+                            defaultModelRendering : 'schema',
+                            showRequestHeaders : false,
+                            validatorUrl : null
+                        });
+
+                        window.swaggerUi.load();
+
+                        if (qs.ssoId) {
+
+                            if (qs.ssoId == 'basic') {
+                                var username = sessionStorage.getItem('basic-username');
+                                var password = sessionStorage.getItem('basic-password');
+                                if (username && password) {
+                                    var swaggerAuthName = sessionStorage.getItem('swagger-auth-name');
+                                    if (!swaggerAuthName) {
+                                        swaggerAuthName = "BasicAuth";
+                                    }
+                                    var basicAuth = new SwaggerClient.PasswordAuthorization(username, password);
+                                    window.swaggerUi.api.clientAuthorizations.add(swaggerAuthName, basicAuth);
                                 } else {
-                                    $(".resource.active .options .toggleEndpointList").click();
+                                    console.log("No basic auth credentials for swagger.");
                                 }
-
-                            };
-
-                            // When filtering, we first need to "expand" all the operations
-                            $input.on("keyup change", toggleOperations);
-
-                        },
-                        onFailure : function(data) {
-                            console.log("Unable to load SwaggerUI");
-                        },
-                        docExpansion : "none",
-                        jsonEditor : false,
-                        defaultModelRendering : 'schema',
-                        showRequestHeaders : false,
-                        validatorUrl : null
-                    });
-
-                    window.swaggerUi.load();
-
-                    if (qs.ssoId) {
-
-                        if (qs.ssoId == 'basic') {
-                            var username = sessionStorage.getItem('basic-username');
-                            var password = sessionStorage.getItem('basic-password');
-                            if (username && password) {
-                                var swaggerAuthName = sessionStorage.getItem('swagger-auth-name');
-                                if (!swaggerAuthName) {
-                                    swaggerAuthName = "BasicAuth";
-                                }
-                                var basicAuth = new SwaggerClient.PasswordAuthorization(username, password);
-                                window.swaggerUi.api.clientAuthorizations.add(swaggerAuthName, basicAuth);
                             } else {
-                                console.log("No basic auth credentials for swagger.");
-                            }
-                        } else {
-                            // api key of some kind.
-                            var key = sessionStorage.getItem('vmware-api-session-id');
-                            if (key && key.trim() != "") {
-                                if (qs.ssoId == 'vra_sso') {
-                                    var apiKeyAuth = new SwaggerClient.ApiKeyAuthorization("Authorization", "Bearer " + key, "header");
-                                    window.swaggerUi.api.clientAuthorizations.add("Authorization", apiKeyAuth);
-                                } else if (qs.ssoId == 'vsphere_sso') {
-                                    var apiKeyAuth = new SwaggerClient.ApiKeyAuthorization("vmware-api-session-id", key, "header");
-                                    window.swaggerUi.api.clientAuthorizations.add("vmware-api-session-id", apiKeyAuth);
+                                // api key of some kind.
+                                var key = sessionStorage.getItem('vmware-api-session-id');
+                                if (key && key.trim() != "") {
+                                    if (qs.ssoId == 'vra_sso') {
+                                        var apiKeyAuth = new SwaggerClient.ApiKeyAuthorization("Authorization", "Bearer " + key, "header");
+                                        window.swaggerUi.api.clientAuthorizations.add("Authorization", apiKeyAuth);
+                                    } else if (qs.ssoId == 'vsphere_sso') {
+                                        var apiKeyAuth = new SwaggerClient.ApiKeyAuthorization("vmware-api-session-id", key, "header");
+                                        window.swaggerUi.api.clientAuthorizations.add("vmware-api-session-id", apiKeyAuth);
+                                    }
                                 }
                             }
                         }
-                    }
 
-                }).fail(function(event, textStatus, error) {
+                        }).fail(function(event, textStatus, error) {
+                            $("#swagger-ui-container").empty().append("<p>Oops!  Request failed! The API documentation at " +  encodeURI(qs.url) + " gives error: " + error + "</p>");
+                        })
+
+                }, function() {
                     $("#swagger-ui-container").empty().append("<p>Oops!  Request failed! The API documentation at " +  encodeURI(qs.url) + " gives error: " + error + "</p>");
-                })
-
+                    return;
+                });
             }
-
         });
 
         function addApiKeyAuthorization(){
